@@ -1,0 +1,121 @@
+const { 
+  Client, 
+  GatewayIntentBits, 
+  Partials, 
+  SlashCommandBuilder 
+} = require('discord.js');
+
+const client = new Client({
+  intents: [
+    GatewayIntentBits.Guilds,
+    GatewayIntentBits.GuildMembers,
+    GatewayIntentBits.GuildModeration, // For monitoring bans and kicks
+    GatewayIntentBits.MessageContent,
+  ],
+  partials: [Partials.Message, Partials.Channel],
+});
+
+// Store moderation actions
+const modActions = new Map(); // { moderatorId: [{ timestamp: Date.now(), action: 'ban'/'kick' }] }
+
+client.once('ready', () => {
+  console.log(`${client.user.tag} is online and ready!`);
+});
+
+// Monitor Guild Member Bans
+client.on('guildBanAdd', async (ban) => {
+  const { guild, executor } = ban;
+
+  if (!executor || executor.bot) return;
+
+  recordModAction(guild.id, executor.id, 'ban');
+
+  const actionCount = countRecentActions(guild.id, executor.id, 10 * 60 * 1000); // 10 minutes
+  if (actionCount > 5) {
+    const guildOwner = await guild.fetchOwner();
+    try {
+      await guild.members.ban(executor.id, { reason: 'Exceeded moderation action limits (ban/kick).' });
+      guildOwner.send(
+        `⚠️ Moderator ${executor.tag} was permanently banned for exceeding the limit of 5 bans/kicks in 10 minutes.`
+      );
+    } catch (error) {
+      guildOwner.send(`Failed to ban ${executor.tag} automatically. Please check their permissions manually.`);
+    }
+  }
+});
+
+// Monitor Guild Member Kicks
+client.on('guildMemberRemove', async (member) => {
+  const auditLogs = await member.guild.fetchAuditLogs({ type: 'MEMBER_KICK', limit: 1 });
+  const kickLog = auditLogs.entries.first();
+
+  if (!kickLog || Date.now() - kickLog.createdTimestamp > 5000) return; // Ensure it was recent
+
+  const { executor } = kickLog;
+
+  if (!executor || executor.bot) return;
+
+  recordModAction(member.guild.id, executor.id, 'kick');
+
+  const actionCount = countRecentActions(member.guild.id, executor.id, 10 * 60 * 1000); // 10 minutes
+  if (actionCount > 5) {
+    const guildOwner = await member.guild.fetchOwner();
+    try {
+      await member.guild.members.ban(executor.id, { reason: 'Exceeded moderation action limits (ban/kick).' });
+      guildOwner.send(
+        `⚠️ Moderator ${executor.tag} was permanently banned for exceeding the limit of 5 bans/kicks in 10 minutes.`
+      );
+    } catch (error) {
+      guildOwner.send(`Failed to ban ${executor.tag} automatically. Please check their permissions manually.`);
+    }
+  }
+});
+
+// Helper Functions
+function recordModAction(guildId, modId, action) {
+  if (!modActions.has(guildId)) {
+    modActions.set(guildId, new Map());
+  }
+
+  const guildActions = modActions.get(guildId);
+  if (!guildActions.has(modId)) {
+    guildActions.set(modId, []);
+  }
+
+  const actions = guildActions.get(modId);
+  actions.push({ timestamp: Date.now(), action });
+
+  // Clean up old actions
+  guildActions.set(modId, actions.filter((a) => Date.now() - a.timestamp <= 10 * 60 * 1000)); // Keep actions within 10 minutes
+}
+
+function countRecentActions(guildId, modId, timeframe) {
+  if (!modActions.has(guildId)) return 0;
+
+  const guildActions = modActions.get(guildId);
+  if (!guildActions.has(modId)) return 0;
+
+  const actions = guildActions.get(modId);
+  return actions.filter((a) => Date.now() - a.timestamp <= timeframe).length;
+}
+
+// Register Commands
+client.on('ready', async () => {
+  const guilds = client.guilds.cache;
+  for (const [guildId, guild] of guilds) {
+    await guild.commands.set([
+      new SlashCommandBuilder()
+        .setName('log')
+        .setDescription('Set the channel for logging moderation actions.')
+        .addChannelOption((option) =>
+          option.setName('channel').setDescription('Log channel').setRequired(true)
+        ),
+      new SlashCommandBuilder()
+        .setName('apply')
+        .setDescription('Start an application process.'),
+    ]);
+  }
+});
+
+// Bot Login
+client.login('MTMyMjUzOTQwMzUzNjYzMzkxNw.GpQ8qE.XagKsI2_Z2iQ4_I9rOGb9l3VvBHjkWpvBAAAGI');
