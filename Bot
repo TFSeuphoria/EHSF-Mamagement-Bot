@@ -118,4 +118,5 @@ client.on('ready', async () => {
 });
 
 // Bot Login
-client.login('MTMyMjUzOTQwMzUzNjYzMzkxNw.GpQ8qE.XagKsI2_Z2iQ4_I9rOGb9l3VvBHjkWpvBAAAGI');
+require('dotenv').config();
+client.login(process.env.DISCORD_TOKEN);
