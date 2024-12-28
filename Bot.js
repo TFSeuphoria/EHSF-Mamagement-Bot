@@ -55,3 +55,6 @@ client.on('messageCreate', (message) => {
 client.on('error', (error) => {
   console.error('An error occurred:', error);
 });
+
+require('dotenv').config();  // Add this line to load the .env file
+console.log(process.env.DISCORD_TOKEN);  // Verify that the token is being read correctly
